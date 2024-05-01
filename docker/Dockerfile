@@ -1,11 +1,11 @@
 # STEP1: CLONE THE CODE
-FROM alpine:latest as builder_prepare
+FROM --platform=$BUILDPLATFORM alpine:latest as builder_prepare
 WORKDIR /home/
 RUN apk add git && \
     git clone --depth 1 https://github.com/mickael-kerjean/filestash
 
 # STEP2: BUILD THE FRONTEND
-FROM node:18-alpine AS builder_frontend
+FROM --platform=$BUILDPLATFORM node:18-alpine AS builder_frontend
 WORKDIR /home/
 COPY --from=builder_prepare /home/filestash/ ./
 RUN apk add make git gzip brotli && \
@@ -14,62 +14,38 @@ RUN apk add make git gzip brotli && \
     cd public && make compress
 
 # STEP3: BUILD THE BACKEND
-FROM golang:1.20-bookworm AS builder_backend
+# 使用 buildx 的 TARGETPLATFORM 环境变量来选择正确的基础镜像
+FROM --platform=$BUILDPLATFORM golang:1.20 AS builder_backend
 WORKDIR /home/
 COPY --from=builder_frontend /home/ ./
-RUN apt-get update > /dev/null && \
-    apt-get install -y libvips-dev curl make > /dev/null 2>&1 && \
-    apt-get install -y libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev libgif-dev && \
+# 使用条件语句根据不同的平台执行不同的命令
+RUN if [ "$(uname -m)" = "aarch64" ]; then \
+        apt-get update && apt-get install -y libvips-dev curl make libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev libgif-dev; \
+    else \
+        apt-get update && apt-get install -y libvips-dev curl make libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev libgif-dev; \
+    fi && \
     make build_init && \
     make build_backend && \
     mkdir -p ./dist/data/state/config/ && \
     cp config/config.json ./dist/data/state/config/config.json
 
 # STEP4: Create the prod image from the build
-FROM debian:stable-slim
-MAINTAINER mickael@kerjean.me
+FROM --platform=$BUILDPLATFORM debian:stable-slim
 COPY --from=builder_backend /home/dist/ /app/
 WORKDIR "/app"
-RUN apt-get update > /dev/null && \
-    apt-get install -y --no-install-recommends apt-utils && \
-    apt-get install -y curl emacs-nox ffmpeg zip poppler-utils > /dev/null && \
+RUN apt-get update && apt-get install -y --no-install-recommends apt-utils curl emacs-nox ffmpeg zip poppler-utils && \
     # org-mode: html export
     curl https://raw.githubusercontent.com/mickael-kerjean/filestash/master/server/.assets/emacs/htmlize.el > /usr/share/emacs/site-lisp/htmlize.el && \
     # org-mode: markdown export
     curl https://raw.githubusercontent.com/mickael-kerjean/filestash/master/server/.assets/emacs/ox-gfm.el > /usr/share/emacs/site-lisp/ox-gfm.el && \
-    # org-mode: pdf export (with a light latex distribution)
-    cd && apt-get install -y wget perl > /dev/null && \
-    export CTAN_REPO="http://mirror.las.iastate.edu/tex-archive/systems/texlive/tlnet" && \
-    curl -sL "https://yihui.name/gh/tinytex/tools/install-unx.sh" | sh && \
-    mv ~/.TinyTeX /usr/share/tinytex && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install wasy && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install ulem && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install marvosym && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install wasysym && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install xcolor && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install listings && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install parskip && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install float && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install wrapfig && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install sectsty && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install capt-of && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install epstopdf-pkg && \
-    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install cm-super && \
-    ln -s /usr/share/tinytex/bin/x86_64-linux/pdflatex /usr/local/bin/pdflatex && \
-    apt-get purge -y --auto-remove perl wget && \
     # Cleanup
-    find /usr/share/ -name 'doc' | xargs rm -rf && \
-    find /usr/share/emacs -name '*.pbm' | xargs rm -f && \
-    find /usr/share/emacs -name '*.png' | xargs rm -f && \
-    find /usr/share/emacs -name '*.xpm' | xargs rm -f
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /tmp/*
 
 RUN useradd filestash && \
     chown -R filestash:filestash /app/ && \
-    find /app/data/ -type d -exec chmod 770 {} \; && \
-    find /app/data/ -type f -exec chmod 760 {} \; && \
-    chmod 730 /app/filestash && \
-    rm -rf /var/lib/apt/lists/* && \
-    rm -rf /tmp/*
+    chmod 730 /app/filestash
 
 USER filestash
 CMD ["/app/filestash"]
