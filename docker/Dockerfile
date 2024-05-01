@@ -1,4 +1,4 @@
-# STEP1: CLONE THE CODE
+# STEP1: CLONE THE CODE 
 FROM --platform=$BUILDPLATFORM alpine:latest as builder_prepare
 WORKDIR /home/
 RUN apk add git && \
