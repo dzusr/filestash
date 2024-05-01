@@ -14,16 +14,12 @@ RUN apk add make git gzip brotli && \
     cd public && make compress
 
 # STEP3: BUILD THE BACKEND
-# 使用 buildx 的 TARGETPLATFORM 环境变量来选择正确的基础镜像
 FROM --platform=$BUILDPLATFORM golang:1.20 AS builder_backend
 WORKDIR /home/
 COPY --from=builder_frontend /home/ ./
-# 使用条件语句根据不同的平台执行不同的命令
-RUN if [ "$(uname -m)" = "aarch64" ]; then \
-        apt-get update && apt-get install -y libvips-dev curl make libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev libgif-dev; \
-    else \
-        apt-get update && apt-get install -y libvips-dev curl make libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev libgif-dev; \
-    fi && \
+RUN apt-get update > /dev/null && \
+    apt-get install -y libvips-dev curl make > /dev/null 2>&1 && \
+    apt-get install -y libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev libgif-dev && \
     make build_init && \
     make build_backend && \
     mkdir -p ./dist/data/state/config/ && \
@@ -31,21 +27,50 @@ RUN if [ "$(uname -m)" = "aarch64" ]; then \
 
 # STEP4: Create the prod image from the build
 FROM --platform=$BUILDPLATFORM debian:stable-slim
+MAINTAINER root@gmail.com
 COPY --from=builder_backend /home/dist/ /app/
 WORKDIR "/app"
-RUN apt-get update && apt-get install -y --no-install-recommends apt-utils curl emacs-nox ffmpeg zip poppler-utils && \
+RUN apt-get update > /dev/null && \
+    apt-get install -y --no-install-recommends apt-utils ca-certificates && \
+    apt-get install -y curl emacs-nox ffmpeg zip poppler-utils > /dev/null && \
+    update-ca-certificates && \
     # org-mode: html export
     curl https://raw.githubusercontent.com/mickael-kerjean/filestash/master/server/.assets/emacs/htmlize.el > /usr/share/emacs/site-lisp/htmlize.el && \
     # org-mode: markdown export
     curl https://raw.githubusercontent.com/mickael-kerjean/filestash/master/server/.assets/emacs/ox-gfm.el > /usr/share/emacs/site-lisp/ox-gfm.el && \
+    # org-mode: pdf export (with a light latex distribution)
+    cd && apt-get install -y wget perl > /dev/null && \
+    export CTAN_REPO="http://mirror.las.iastate.edu/tex-archive/systems/texlive/tlnet" && \
+    curl -sL "https://yihui.name/gh/tinytex/tools/install-unx.sh" | sh && \
+    mv ~/.TinyTeX /usr/share/tinytex && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install wasy && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install ulem && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install marvosym && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install wasysym && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install xcolor && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install listings && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install parskip && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install float && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install wrapfig && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install sectsty && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install capt-of && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install epstopdf-pkg && \
+    /usr/share/tinytex/bin/$(uname -m)-linux/tlmgr install cm-super && \
+    ln -s /usr/share/tinytex/bin/x86_64-linux/pdflatex /usr/local/bin/pdflatex && \
+    apt-get purge -y --auto-remove perl wget && \
     # Cleanup
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* && \
-    rm -rf /tmp/*
+    find /usr/share/ -name 'doc' | xargs rm -rf && \
+    find /usr/share/emacs -name '*.pbm' | xargs rm -f && \
+    find /usr/share/emacs -name '*.png' | xargs rm -f && \
+    find /usr/share/emacs -name '*.xpm' | xargs rm -f
 
 RUN useradd filestash && \
     chown -R filestash:filestash /app/ && \
-    chmod 730 /app/filestash
+    find /app/data/ -type d -exec chmod 770 {} \; && \
+    find /app/data/ -type f -exec chmod 760 {} \; && \
+    chmod 730 /app/filestash && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /tmp/*
 
 USER filestash
 CMD ["/app/filestash"]
