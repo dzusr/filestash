@@ -1,7 +1,7 @@
 .component_thing {
     clear: both;
 }
-.component_thing:hover .box, .component_thing .highlight.box {
+.component_thing:hover .box, .component_thing .highlight.box, .component_thing.hover .box, .component_thing .highlight.box {
     transition: 0.1s ease-out background;
     background: var(--border);
     border-color: var(--super-light);
@@ -110,7 +110,6 @@
 /* GRID & LIST VIEW */
 .list {
     display: grid;
-    grid-template-columns: repeat(auto-fill, 25%);
 }
 .list > .component_thing {
     width: 100%;
