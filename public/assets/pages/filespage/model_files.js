@@ -1,22 +1,5 @@
-import { onDestroy } from "../../lib/skeleton/index.js";
 import rxjs from "../../lib/rx.js";
 import ajax from "../../lib/ajax.js";
-
-const selection$ = new rxjs.BehaviorSubject([]);
-
-onDestroy(() => selection$.next([]));
-
-export function addSelection(name, type) {
-    selection$.next(selection$.value.concat({ name, type }));
-}
-
-export function clearSelection() {
-    selection$.next([]);
-}
-
-export function getSelection$() {
-    return selection$.asObservable();
-}
 
 // export function ls() {
 //     return rxjs.from(new Error("missing cache")).pipe(
@@ -38,16 +21,20 @@ export function getSelection$() {
 //     )
 // }
 
-export function ls() {
-    return rxjs.pipe(
-        rxjs.mergeMap((path) => ajax({
-            url: `/api/files/ls?path=${path}`,
-            responseType: "json"
-        }).pipe(rxjs.map(({ responseJSON }) => ({
-            files: responseJSON.results.sort(sortByDefault),
-            path,
-        })))),
+export function search(term) {
+    return rxjs.of([]).pipe(
+        rxjs.delay(1500),
     );
+}
+
+export function ls(path) {
+    return ajax({
+        url: `/api/files/ls?path=${path}`,
+        responseType: "json"
+    }).pipe(rxjs.map(({ responseJSON }) => ({
+        files: responseJSON.results.sort(sortByDefault),
+        path,
+    })));
 }
 
 const sortByDefault = (fileA, fileB) => {
